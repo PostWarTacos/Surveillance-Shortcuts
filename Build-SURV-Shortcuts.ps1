@@ -388,6 +388,33 @@ try {
 
 # --------------- Build Shortcuts --------------- #
 Write-LogMessage -Level "Info" -Message "Creating shortcuts for $($script:storeNumsTable.Count) stores"
+
+# Clean up existing shortcuts before creating new ones
+Write-LogMessage -Level "Info" -Message "Cleaning up existing shortcuts in target directory"
+try {
+    $existingShortcuts = Get-ChildItem -Path $Config.ShortcutLocation -Filter "*.lnk" -ErrorAction SilentlyContinue
+    
+    if ($existingShortcuts.Count -gt 0) {
+        Write-LogMessage -Level "Info" -Message "Found $($existingShortcuts.Count) existing shortcuts to remove"
+        
+        foreach ($shortcut in $existingShortcuts) {
+            try {
+                Remove-Item -Path $shortcut.FullName -Force -ErrorAction Stop
+                Write-LogMessage -Level "Success" -Message "Removed existing shortcut: $($shortcut.Name)"
+            } catch {
+                Write-LogMessage -Level "Warning" -Message "Failed to remove shortcut $($shortcut.Name): $($_.Exception.Message)"
+            }
+        }
+        
+        Write-LogMessage -Level "Success" -Message "Completed cleanup of existing shortcuts"
+    } else {
+        Write-LogMessage -Level "Info" -Message "No existing shortcuts found to clean up"
+    }
+} catch {
+    Write-LogMessage -Level "Error" -Message "Failed during shortcut cleanup: $($_.Exception.Message)"
+    # Continue execution even if cleanup fails
+}
+
 $shortcutsCreated = 0
 $shortcutsFailed = 0
 
