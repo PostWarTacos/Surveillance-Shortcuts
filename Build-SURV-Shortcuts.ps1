@@ -33,7 +33,6 @@ $Config = @{
     
     # Network Configuration
     ConnectionTestCount = 2
-    ConnectionTimeoutSeconds = 30
     
     # Share Configuration
     SharePermissionAccount = "DDS\FW-Milestone"
@@ -110,7 +109,7 @@ Function Get-ComputersFromAllOUs {
     
     $allComputers = @()
     
-    foreach ($OU in $OUs) {
+    foreach ($OU in $Config.OrganizationalUnits) {
         try {
             Write-LogMessage -Level "Info" -Message "Querying OU: $OU"
             
