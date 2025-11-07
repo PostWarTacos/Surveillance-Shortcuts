@@ -426,5 +426,5 @@ $script:pathFailed | Out-File "$($Config.ShortcutLocation)\PathFailed.txt"
 $script:NoADSIData | Out-File "$($Config.ShortcutLocation)\NoADSIData.txt"
 $script:shortcutsFailed | Out-File "$($Config.ShortcutLocation)\ShortcutsFailed.txt"
 
-Write-LogMessage -Level "Success" -Message "Completed creating $script:shortcutsCreated shortcuts ($script:shortcutsFailed failed)"
+Write-LogMessage -Level "Success" -Message "Completed creating $script:shortcutsCreated.count shortcuts. $script:shortcutsFailed.count failed"
 Write-LogMessage -Level "Info" -Message "Surveillance Shortcuts creation process completed. Check log file: $script:logFile"
