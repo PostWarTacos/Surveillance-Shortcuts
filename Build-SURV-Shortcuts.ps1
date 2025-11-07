@@ -178,29 +178,13 @@ clear
 # Clean up by removing and recreating the entire shortcut directory
 Write-LogMessage -Level "Info" -Message "Removing and recreating shortcut directory for clean slate"
 try {
-    if (Test-Path $Config.ShortcutLocation) {
-        Remove-Item -Path $Config.ShortcutLocation -Recurse -Force -ErrorAction Stop
-        Write-LogMessage -Level "Success" -Message "Removed existing shortcut directory"
-    }
-    
-    New-Item -ItemType Directory -Path $Config.ShortcutLocation -Force -ErrorAction Stop
-    Write-LogMessage -Level "Success" -Message "Recreated shortcut directory: $($Config.ShortcutLocation)"    
-    
-} catch {
-    Write-LogMessage -Level "Error" -Message "Failed to recreate shortcut directory: $($_.Exception.Message)"
-    # Continue execution even if cleanup fails
-}
-
-try {
     # Create shortcut directory if it doesn't exist
     If ( -not ( Test-Path $Config.ShortcutLocation )){
         New-Item -ItemType Directory -Path $Config.ShortcutLocation -ErrorAction Stop
         Write-LogMessage -Level "Success" -Message "Created directory: $($Config.ShortcutLocation)"
     }
-    
-    # Remove old log file if it exists
-    If ( Test-Path $script:logFile ){
-        Remove-Item $script:logFile -Force -ErrorAction Stop
+    else {
+        Remove-Item "$($Config.ShortcutLocation)\*"
     }
     
     Write-LogMessage -Level "Info" -Message "Starting Surveillance Shortcuts creation process"
@@ -214,7 +198,7 @@ try {
 Write-LogMessage -Level "Info" -Message "Searching SURV OUs for SURV machines"
 # Get all computer information in a single optimized query per OU
 $computerInfo = Get-ComputersFromAllOUs -OUs $config.OrganizationalUnits
-$computers = $computerInfo | Select-Object -ExpandProperty Name   
+$computers = $computerInfo | Sort-Object Name | Select-Object -ExpandProperty Name
 
 # Test Connection to all SURV machines
 Write-LogMessage -Level "Info" -Message "Testing connectivity to $($computers.Count) computers"
@@ -244,7 +228,7 @@ foreach ( $computer in $alives ){
         
         if ($null -eq $computerData) {
             Write-LogMessage -Level "Warning" -Message "No ADSI data found for computer: $computer"
-            $script:NoADSIData += $computer
+            $script:NoADSIData += "$($computer) - trying API"
         }
 
         # Use the store number we already retrieved, or fall back to API
@@ -256,10 +240,12 @@ foreach ( $computer in $alives ){
                     $storeNum = $storeNum.Substring(1) 
                 }
             } catch {
-                Write-LogMessage -Level "Warning" -Message "Failed to get store number from API for $computer : $($_.Exception.Message)"
-                $script:NoADSIData += "$computer Failed to pull any info from ADSI or API"
-                continue
+                throw
             }
+        }
+
+        if ($null -eq $storeNum -or $storenum -eq ''){
+            throw
         }
 
         $script:storeNumsTable += [PSCustomObject]@{
@@ -268,19 +254,22 @@ foreach ( $computer in $alives ){
             URI          = $computer.Substring(1,4)  + "_corp"
             LocalPath    = "D:\" + $computer.Substring(1,4)  + "_corp"
             Share        = "\\" + $computer + "\" + $computer.Substring(1,4)  + "_corp"
-        }      
+        }
         Write-LogMessage -Level "Success" -Message "Processed computer $computer with store number: $storeNum"
     } catch {
         Write-LogMessage -Level "Error" -Message "Failed to process computer $computer : $($_.Exception.Message)"
-        continue
+        $script:NoADSIData += "$computer Failed to pull any info from ADSI or API"
     }
 }
+
+# Resort list
+$script:storeNumsTable = $script:storeNumsTable | Sort-Object ComputerName
 
 # --------------- Test Share Paths & Create Shares if needed --------------- #
 # Test-Path on all share locations
 Write-LogMessage -Level "Info" -Message "Testing share paths for $($script:storeNumsTable.count) stores"
 foreach ( $store in $script:storeNumsTable ){
-    Write-Host "$i - Testing connection to share $($store.share)"
+    Write-Host "Testing connection to share $($store.share)"
     $session = $null
     try {
         if ( Test-Path $store.Share -ErrorAction Stop ){ 
@@ -369,7 +358,7 @@ foreach ( $store in $script:storeNumsTable ){
         }
     } catch {
         Write-LogMessage -Level "Error" -Message "Failed to process store $($store.StoreNumber) - $($Store.ComputerName.substring(1,4)): $($_.Exception.Message)"
-        $script:pathFailed += "$($store.StoreNumber) - $($Store.ComputerName.substring(1,4))"
+        $script:pathFailed += "$($store.StoreNumber) - $($Store.ComputerName)"
         if ($session) {
             Remove-SessionSafely -Session $session
             $session = $null
@@ -378,7 +367,7 @@ foreach ( $store in $script:storeNumsTable ){
 }
 
 # Reassign array to remove computernames where share couldn't be accessed
-$script:storeNumsTable = $script:pathValid
+$script:storeNumsTable = $script:pathValid | Sort-Object ComputerName
 
 # --------------- Handle Duplicate Store Numbers --------------- #
 # Check for duplicate store numbers and rename them with _01, _02, etc.
@@ -427,7 +416,7 @@ foreach ($store in $script:storeNumsTable) {
         $script:shortcutsCreated += "$($store.StoreNumber) - $($Store.ComputerName.substring(1,4))"
     } catch {
         Write-LogMessage -Level "Error" -Message "Failed to create shortcut for $($store.ComputerName): $($_.Exception.Message)"
-        $script:shortcutsFailed += "$($store.StoreNumber) - $($Store.ComputerName.substring(1,4))"
+        $script:shortcutsFailed += "$($store.StoreNumber) - $($Store.ComputerName)"
     }
 }
 
