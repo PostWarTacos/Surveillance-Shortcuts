@@ -44,6 +44,9 @@ $script:storeNumsTable = @()
 $script:shortcutsCreated = @()
 $script:shortcutsFailed = @()
 $script:NoADSIData = @()
+$script:pathFailed = @()
+$script:deadComputers = @()
+$script:alives = @()
 
 # --------------- Helper Functions --------------- #
 
@@ -215,15 +218,18 @@ $computers = $computerInfo | Select-Object -ExpandProperty Name
 
 # Test Connection to all SURV machines
 Write-LogMessage -Level "Info" -Message "Testing connectivity to $($computers.Count) computers"
-$alives = foreach ( $computer in $computers ){
+foreach ( $computer in $computers ){
     try {
         if ( Test-Connection -Quiet -Count $Config.ConnectionTestCount -ComputerName $computer -ErrorAction Stop){
             Write-LogMessage -Level "Success" -Message "Computer $computer is reachable"
-            Write-Output $computer
+            $alives += $computer
+        } else {
+            Write-LogMessage -Level "Warning" -Message "Computer $computer is not reachable"
+            $deadComputers += $computer
         }
     } catch {
         Write-LogMessage -Level "Warning" -Message "Computer $computer is not reachable: $($_.Exception.Message)"
-        $script:shortcutsFailed += "$computer - Ping Failed"
+        $deadComputers += $computer
     }
 }
 
@@ -238,7 +244,7 @@ foreach ( $computer in $alives ){
         
         if ($null -eq $computerData) {
             Write-LogMessage -Level "Warning" -Message "No ADSI data found for computer: $computer"
-            $NoADSIData += $computer
+            $script:NoADSIData += $computer
         }
 
         # Use the store number we already retrieved, or fall back to API
@@ -251,7 +257,7 @@ foreach ( $computer in $alives ){
                 }
             } catch {
                 Write-LogMessage -Level "Warning" -Message "Failed to get store number from API for $computer : $($_.Exception.Message)"
-                $script:shortcutsFailed += "$computer Failed to pull any info from ADSI or API"
+                $script:NoADSIData += "$computer Failed to pull any info from ADSI or API"
                 continue
             }
         }
@@ -288,18 +294,21 @@ foreach ( $store in $script:storeNumsTable ){
             try {
                 # Create SMB share
                 New-SmbShare -Name $store.URI -Path $store.LocalPath -CimSession $session -ErrorAction Stop
-                
                 if ( Test-Path $store.share -ErrorAction Stop ){ # Test path again to see if New-SMBshare resolved the issue.
-                    $script:pathValid += $store
                     Write-LogMessage -Level "Success" -Message "Successfully created share: $($store.Share)"
+                    $script:pathValid += $store
                 }
                 else{
                     Write-LogMessage -Level "Error" -Message "Failed to create share at $($store.Share). Share creation succeeded but path test failed"
-                    continue
+                    throw "Share creation succeeded but path test failed"
                 }
             } catch {
                 Write-LogMessage -Level "Error" -Message "Failed to create share at $($store.Share): $($_.Exception.Message)"
-                continue
+                if ($session) {
+                    Remove-SessionSafely -Session $session
+                    $session = $null
+                }
+                throw "Failed to create share at $($store.Share)"
             }
         }
         
@@ -329,6 +338,11 @@ foreach ( $store in $script:storeNumsTable ){
             
         } catch {
             Write-LogMessage -Level "Warning" -Message "Failed to update share permissions for $($store.Share): $($_.Exception.Message)"
+            if ($session) {
+                Remove-SessionSafely -Session $session
+                $session = $null
+            }
+            throw "Failed to update share permissions for $($store.Share)"
         }
 
         # Grant NTFS permissions
@@ -347,12 +361,16 @@ foreach ( $store in $script:storeNumsTable ){
             }
         } catch {
             Write-LogMessage -Level "Warning" -Message "Failed to update NTFS permissions for $($store.Share): $($_.Exception.Message)"
+            if ($session) {
+                Remove-SessionSafely -Session $session
+                $session = $null
+            }
+            throw "Failed to update NTFS permissions for $($store.Share)"
         }
     } catch {
         Write-LogMessage -Level "Error" -Message "Failed to process store $($store.StoreNumber) - $($Store.ComputerName.substring(1,4)): $($_.Exception.Message)"
-        $script:shortcutsFailed += "$($store.StoreNumber) - $($Store.ComputerName.substring(1,4))"
-    } finally {
-        if ($session){
+        $script:pathFailed += "$($store.StoreNumber) - $($Store.ComputerName.substring(1,4))"
+        if ($session) {
             Remove-SessionSafely -Session $session
             $session = $null
         }
@@ -414,9 +432,10 @@ foreach ($store in $script:storeNumsTable) {
 }
 
 $computers | Out-File "$($Config.ShortcutLocation)\PulledFromOU.txt"
-$alives | Out-File "$($Config.ShortcutLocation)\Alives.txt"
-$script:pathValid | Out-File "$($Config.ShortcutLocation)\PathValid.txt"
-$script:shortcutsCreated | Out-File "$($Config.ShortcutLocation)\ShortcutsCreated.txt"
+$script:deadComputers | Out-File "$($Config.ShortcutLocation)\DeadComputers.txt"
+$script:pathFailed | Out-File "$($Config.ShortcutLocation)\PathFailed.txt"
+$script:NoADSIData | Out-File "$($Config.ShortcutLocation)\NoADSIData.txt"
+$script:shortcutsFailed | Out-File "$($Config.ShortcutLocation)\ShortcutsFailed.txt"
 
 Write-LogMessage -Level "Success" -Message "Completed creating $script:shortcutsCreated shortcuts ($script:shortcutsFailed failed)"
 Write-LogMessage -Level "Info" -Message "Surveillance Shortcuts creation process completed. Check log file: $script:logFile"
