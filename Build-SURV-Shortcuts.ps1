@@ -9,8 +9,6 @@
 #
 #######################################################################################
 
-#region Configuration
-
 # --------------- Script Configuration --------------- #
 $Config = @{
     # File and Directory Paths
@@ -39,14 +37,13 @@ $Config = @{
     ShareAccessRight = "Read"
 }
 
-# --------------- Organizational Units --------------- #
-
 # --------------- Script Variables --------------- #
 $script:logFile = Join-Path $Config.ShortcutLocation $Config.LogFileName
 $script:pathValid = @()
 $script:storeNumsTable = @()
-
-#endregion
+$script:shortcutsCreated = @()
+$script:shortcutsFailed = @()
+$script:NoADSIData = @()
 
 # --------------- Helper Functions --------------- #
 
@@ -175,6 +172,22 @@ Function Get-SiteInfoFromDDSAPI() {
 # --------------- Initialize Environment --------------- #
 clear
 
+# Clean up by removing and recreating the entire shortcut directory
+Write-LogMessage -Level "Info" -Message "Removing and recreating shortcut directory for clean slate"
+try {
+    if (Test-Path $Config.ShortcutLocation) {
+        Remove-Item -Path $Config.ShortcutLocation -Recurse -Force -ErrorAction Stop
+        Write-LogMessage -Level "Success" -Message "Removed existing shortcut directory"
+    }
+    
+    New-Item -ItemType Directory -Path $Config.ShortcutLocation -Force -ErrorAction Stop
+    Write-LogMessage -Level "Success" -Message "Recreated shortcut directory: $($Config.ShortcutLocation)"    
+    
+} catch {
+    Write-LogMessage -Level "Error" -Message "Failed to recreate shortcut directory: $($_.Exception.Message)"
+    # Continue execution even if cleanup fails
+}
+
 try {
     # Create shortcut directory if it doesn't exist
     If ( -not ( Test-Path $Config.ShortcutLocation )){
@@ -197,7 +210,7 @@ try {
 
 Write-LogMessage -Level "Info" -Message "Searching SURV OUs for SURV machines"
 # Get all computer information in a single optimized query per OU
-$computerInfo = Get-ComputersFromAllOUs -OUs $script:OUs
+$computerInfo = Get-ComputersFromAllOUs -OUs $config.OrganizationalUnits
 $computers = $computerInfo | Select-Object -ExpandProperty Name   
 
 # Test Connection to all SURV machines
@@ -210,25 +223,22 @@ $alives = foreach ( $computer in $computers ){
         }
     } catch {
         Write-LogMessage -Level "Warning" -Message "Computer $computer is not reachable: $($_.Exception.Message)"
+        $script:shortcutsFailed += "$computer - Ping Failed"
     }
 }
 
-# Overwrite $computers variable with only alive computers
-$computers = $alives
-
 # --------------- Get Machine Info & Build Store Numbers --------------- #
 # Build store numbers table using the computer info we already retrieved
-Write-LogMessage -Level "Info" -Message "Building store numbers table for $($computers.Count) alive computers"
+Write-LogMessage -Level "Info" -Message "Building store numbers table for $($alives.Count) alive computers"
 
-$i = 1
-foreach ( $computer in $computers ){
+foreach ( $computer in $alives ){
     try {
         # Find the computer info from our earlier ADSI query
         $computerData = $computerInfo | Where-Object Name -eq $computer
         
         if ($null -eq $computerData) {
             Write-LogMessage -Level "Warning" -Message "No ADSI data found for computer: $computer"
-            continue
+            $NoADSIData += $computer
         }
 
         # Use the store number we already retrieved, or fall back to API
@@ -241,26 +251,19 @@ foreach ( $computer in $computers ){
                 }
             } catch {
                 Write-LogMessage -Level "Warning" -Message "Failed to get store number from API for $computer : $($_.Exception.Message)"
+                $script:shortcutsFailed += "$computer Failed to pull any info from ADSI or API"
                 continue
             }
         }
-        
-        # Skip if we still don't have a store number
-        if ($null -eq $storeNum -or $storeNum -eq '') {
-            Write-LogMessage -Level "Warning" -Message "No store number available for computer $computer - skipping"
-            continue
-        }
-        
+
         $script:storeNumsTable += [PSCustomObject]@{
             ComputerName = $computer
             StoreNumber  = $storeNum
             URI          = $computer.Substring(1,4)  + "_corp"
             LocalPath    = "D:\" + $computer.Substring(1,4)  + "_corp"
             Share        = "\\" + $computer + "\" + $computer.Substring(1,4)  + "_corp"
-        }
-        
+        }      
         Write-LogMessage -Level "Success" -Message "Processed computer $computer with store number: $storeNum"
-        $i++
     } catch {
         Write-LogMessage -Level "Error" -Message "Failed to process computer $computer : $($_.Exception.Message)"
         continue
@@ -270,21 +273,18 @@ foreach ( $computer in $computers ){
 # --------------- Test Share Paths & Create Shares if needed --------------- #
 # Test-Path on all share locations
 Write-LogMessage -Level "Info" -Message "Testing share paths for $($script:storeNumsTable.count) stores"
-$i = 1
 foreach ( $store in $script:storeNumsTable ){
-    Write-LogMessage -Level "Info" -Message "Testing path $i of $($script:storeNumsTable.count) - $($store.ComputerName)"
+    Write-Host "$i - Testing connection to share $($store.share)"
     $session = $null
-    
     try {
-        $session = New-PSSession $store.ComputerName -ErrorAction Stop
-        
         if ( Test-Path $store.Share -ErrorAction Stop ){ 
             $script:pathValid += $store
             Write-LogMessage -Level "Success" -Message "Share exists: $($store.Share)"
+            Continue
         }
         else{ # Failed to connect to share, attempt to create it
             Write-LogMessage -Level "Warning" -Message "Share not found: $($store.Share). Attempting to create share and apply permissions"
-            
+            $session = New-PSSession $store.ComputerName -ErrorAction Stop
             try {
                 # Create SMB share
                 New-SmbShare -Name $store.URI -Path $store.LocalPath -CimSession $session -ErrorAction Stop
@@ -348,12 +348,14 @@ foreach ( $store in $script:storeNumsTable ){
         } catch {
             Write-LogMessage -Level "Warning" -Message "Failed to update NTFS permissions for $($store.Share): $($_.Exception.Message)"
         }
-        
-        $i++
     } catch {
-        Write-LogMessage -Level "Error" -Message "Failed to process store $($store.ComputerName): $($_.Exception.Message)"
+        Write-LogMessage -Level "Error" -Message "Failed to process store $($store.StoreNumber) - $($Store.ComputerName.substring(1,4)): $($_.Exception.Message)"
+        $script:shortcutsFailed += "$($store.StoreNumber) - $($Store.ComputerName.substring(1,4))"
     } finally {
-        Remove-SessionSafely -Session $session
+        if ($session){
+            Remove-SessionSafely -Session $session
+            $session = $null
+        }
     }
 }
 
@@ -388,34 +390,6 @@ try {
 # --------------- Build Shortcuts --------------- #
 Write-LogMessage -Level "Info" -Message "Creating shortcuts for $($script:storeNumsTable.Count) stores"
 
-# Clean up existing shortcuts before creating new ones
-Write-LogMessage -Level "Info" -Message "Cleaning up existing shortcuts in target directory"
-try {
-    $existingShortcuts = Get-ChildItem -Path $Config.ShortcutLocation -Filter "*.lnk" -ErrorAction SilentlyContinue
-    
-    if ($existingShortcuts.Count -gt 0) {
-        Write-LogMessage -Level "Info" -Message "Found $($existingShortcuts.Count) existing shortcuts to remove"
-        
-        foreach ($shortcut in $existingShortcuts) {
-            try {
-                Remove-Item -Path $shortcut.FullName -Force -ErrorAction Stop
-                Write-LogMessage -Level "Success" -Message "Removed existing shortcut: $($shortcut.Name)"
-            } catch {
-                Write-LogMessage -Level "Warning" -Message "Failed to remove shortcut $($shortcut.Name): $($_.Exception.Message)"
-            }
-        }
-        
-        Write-LogMessage -Level "Success" -Message "Completed cleanup of existing shortcuts"
-    } else {
-        Write-LogMessage -Level "Info" -Message "No existing shortcuts found to clean up"
-    }
-} catch {
-    Write-LogMessage -Level "Error" -Message "Failed during shortcut cleanup: $($_.Exception.Message)"
-    # Continue execution even if cleanup fails
-}
-
-$shortcutsCreated = 0
-$shortcutsFailed = 0
 
 foreach ($store in $script:storeNumsTable) {
     try {
@@ -432,12 +406,17 @@ foreach ($store in $script:storeNumsTable) {
         [System.Runtime.Interopservices.Marshal]::ReleaseComObject($WScriptShell) | Out-Null
 
         Write-LogMessage -Level "Success" -Message "Created shortcut: $shortcutPath"
-        $shortcutsCreated++
+        $script:shortcutsCreated += "$($store.StoreNumber) - $($Store.ComputerName.substring(1,4))"
     } catch {
         Write-LogMessage -Level "Error" -Message "Failed to create shortcut for $($store.ComputerName): $($_.Exception.Message)"
-        $shortcutsFailed++
+        $script:shortcutsFailed += "$($store.StoreNumber) - $($Store.ComputerName.substring(1,4))"
     }
 }
 
-Write-LogMessage -Level "Success" -Message "Completed creating $shortcutsCreated shortcuts ($shortcutsFailed failed)"
+$computers | Out-File "$($Config.ShortcutLocation)\PulledFromOU.txt"
+$alives | Out-File "$($Config.ShortcutLocation)\Alives.txt"
+$script:pathValid | Out-File "$($Config.ShortcutLocation)\PathValid.txt"
+$script:shortcutsCreated | Out-File "$($Config.ShortcutLocation)\ShortcutsCreated.txt"
+
+Write-LogMessage -Level "Success" -Message "Completed creating $script:shortcutsCreated shortcuts ($script:shortcutsFailed failed)"
 Write-LogMessage -Level "Info" -Message "Surveillance Shortcuts creation process completed. Check log file: $script:logFile"
