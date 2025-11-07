@@ -12,17 +12,18 @@
 # --------------- Script Configuration --------------- #
 $Config = @{
     # File and Directory Paths
-    ShortcutLocation = "D:\SurvShortcuts"
-    IconPath = "C:\Windows\System32\imageres.dll,5"
-    LogFileName = "SurvShortcuts.log"
+    ShortcutLocation    =   "D:\SurvShortcuts"
+    IconPath            =   "C:\Windows\System32\imageres.dll,5"
+    LogFilePath         =   "C:\Drivers\SURV\SurvShortcuts.log"
+    ScriptLocation      =   "C:\Drivers\SURV"
     
     # API Configuration
-    ApiUri = "https://ssdcorpappsrvt1.dpos.loc/esper/Device/AllStores"
-    ApiHeaders = @{"accept" = "text/plain"}
+    ApiUri      = "https://ssdcorpappsrvt1.dpos.loc/esper/Device/AllStores"
+    ApiHeaders  = @{"accept" = "text/plain"}
     
     # ADSI Configuration
-    ADSIFilter = "(&(objectClass=computer)(sAMAccountName=*))"
-    ADSIPageSize = 1000
+    ADSIFilter          = "(&(objectClass=computer)(sAMAccountName=*))"
+    ADSIPageSize        = 1000
     OrganizationalUnits = @(
         "LDAP://OU=SURV,OU=Shared_Use,OU=Endpoints,DC=dds,DC=dillards,DC=net",
         "LDAP://OU=SURV,OU=Shared_Use,OU=Win11,OU=Endpoints,DC=dds,DC=dillards,DC=net",
@@ -33,12 +34,11 @@ $Config = @{
     ConnectionTestCount = 2
     
     # Share Configuration
-    SharePermissionAccount = "DDS\FW-Milestone"
-    ShareAccessRight = "Read"
+    SharePermissionAccount  = "DDS\FW-Milestone"
+    ShareAccessRight        = "Read"
 }
 
 # --------------- Script Variables --------------- #
-$script:logFile = Join-Path $Config.ShortcutLocation $Config.LogFileName
 $script:pathValid = @()
 $script:storeNumsTable = @()
 $script:shortcutsCreated = @()
@@ -60,7 +60,7 @@ Function Write-LogMessage {
         [Parameter(Mandatory)]
         [string]$Message,
         
-        [string]$LogFile = $script:logFile
+        [string]$LogFile = $Config.LogFilePath 
     )
     
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -420,11 +420,11 @@ foreach ($store in $script:storeNumsTable) {
     }
 }
 
-$computers | Out-File "$($Config.ShortcutLocation)\PulledFromOU.txt"
-$script:deadComputers | Out-File "$($Config.ShortcutLocation)\DeadComputers.txt"
-$script:pathFailed | Out-File "$($Config.ShortcutLocation)\PathFailed.txt"
-$script:NoADSIData | Out-File "$($Config.ShortcutLocation)\NoADSIData.txt"
-$script:shortcutsFailed | Out-File "$($Config.ShortcutLocation)\ShortcutsFailed.txt"
+$computers | Out-File "$($Config.ScriptLocation)\PulledFromOU.txt"
+$script:deadComputers | Out-File "$($Config.ScriptLocation)\DeadComputers.txt"
+$script:pathFailed | Out-File "$($Config.ScriptLocation)\PathFailed.txt"
+$script:NoADSIData | Out-File "$($Config.ScriptLocation)\NoADSIData.txt"
+$script:shortcutsFailed | Out-File "$($Config.ScriptLocation)\ShortcutsFailed.txt"
 
 Write-LogMessage -Level "Success" -Message "Completed creating $script:shortcutsCreated.count shortcuts. $script:shortcutsFailed.count failed"
-Write-LogMessage -Level "Info" -Message "Surveillance Shortcuts creation process completed. Check log file: $script:logFile"
+Write-LogMessage -Level "Info" -Message "Surveillance Shortcuts creation process completed. Check log file: $($config.LogFilePath)"
