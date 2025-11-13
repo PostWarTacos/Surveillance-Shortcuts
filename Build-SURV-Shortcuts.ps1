@@ -64,11 +64,26 @@ Function Write-LogMessage {
     )
     
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    $logEntry = "[$timestamp] [$Level] $Message"
     
+    # Add level-specific prefixes
+    $prefix = switch ($Level) {
+        "Info"    { "[*]" }
+        "Warning" { "[!]" }
+        "Error"   { "[!!!]" }
+        "Success" { "[+]" }
+    }
+    
+    # Build the log entry
+    if (-not $prefix) {
+        $logEntry = "[$timestamp] $Message"
+    }
+    else {
+        $logEntry = "[$timestamp] $prefix $Message"
+    }
+
     # Console output with colors
     switch ($Level) {
-        "Info"    { Write-Host $logEntry -ForegroundColor White }
+        "Info"    { Write-Host $logEntry -ForegroundColor Cyan }
         "Warning" { Write-Host $logEntry -ForegroundColor Yellow }
         "Error"   { Write-Host $logEntry -ForegroundColor Red }
         "Success" { Write-Host $logEntry -ForegroundColor Green }
