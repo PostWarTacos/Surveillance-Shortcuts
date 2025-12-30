@@ -209,22 +209,6 @@ Function Set-LocalSharePermissions {
     }
 }
 
-# --------------- Initialize Environment --------------- #
-
-Write-LogMessage -Level "Info" -Message "Starting Local Surveillance Share Build Process"
-
-# Create log directory if needed
-$logDir = Split-Path $Config.LogFilePath -Parent
-if (-not (Test-Path $logDir)) {
-    try {
-        New-Item -ItemType Directory -Path $logDir -Force -ErrorAction Stop | Out-Null
-        Write-LogMessage -Level "Success" -Message "Created log directory: $logDir"
-    } catch {
-        Write-LogMessage -Level "Error" -Message "Failed to create log directory: $($_.Exception.Message)"
-        exit 1
-    }
-}
-
 # --------------- Step 1: Verify Computer is in SURV OU --------------- #
 
 Write-LogMessage -Level "Info" -Message "Verifying computer is in a SURV OU"
