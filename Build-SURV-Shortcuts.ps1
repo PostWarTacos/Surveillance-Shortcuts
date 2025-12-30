@@ -4,7 +4,7 @@
 #   Intent: Connect to ADSI and pull list of surveillance computers, then create a
 #       shortcuts to network shares hosted on each of those computers to view
 #       the files on those computers. Shares are test before shortcut links are made.
-#   Author: Matthew Wurtz
+#   Author: PostWarTacos
 #   Date: 1/23/2025
 #
 #######################################################################################

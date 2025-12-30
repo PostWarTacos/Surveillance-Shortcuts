@@ -4,7 +4,7 @@
 #   Intent: Run locally on surveillance computers via SCCM deployment. Verifies the
 #       computer is in a SURV OU, ensures the required SMB share exists with proper
 #       permissions, and validates external accessibility from a test server.
-#   Author: Matthew Wurtz
+#   Author: PostWarTacos
 #   Date: 12/8/2025
 #
 #######################################################################################

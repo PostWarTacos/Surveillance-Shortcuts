@@ -1,6 +1,6 @@
 <#
 #   Intent: Creates a scheduled task that will run a script.
-#   Author: Matthew Wurtz
+#   Author: PostWarTacos
 #   Date: 28-Feb-25
 #>
 

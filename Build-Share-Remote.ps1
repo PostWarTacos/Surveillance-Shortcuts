@@ -4,7 +4,7 @@
 #   Intent: Connect to ADSI, pull list of surveillance computers from specified OUs,
 #       test connectivity, and ensure each computer has the required SMB share configured
 #       with proper permissions pointing to the local surveillance storage path.
-#   Author: Matthew Wurtz
+#   Author: PostWarTacos
 #   Date: 12/8/2025
 #
 #######################################################################################
