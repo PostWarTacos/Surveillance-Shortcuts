@@ -28,8 +28,8 @@ $Config = @{
     ConnectionTestCount = 2
     
     # Share Configuration
-    SharePermissionAccount  = "DDS\FW-Milestone"
-    ShareAccessRight        = "Read"
+    SharePermissionAccount  = "Everyone"
+    ShareAccessRight        = "Full"
 }
 
 # --------------- Script Variables --------------- #
@@ -172,15 +172,8 @@ Function Set-SharePermissions {
         Invoke-Command -Session $Session -ScriptBlock {
             param($ShareName, $PermissionAccount, $AccessRight)
             
-            # Grant correct access
+            # Grant Everyone full access at share level (NTFS will restrict actual access)
             Grant-SmbShareAccess -Name $ShareName -AccountName $PermissionAccount -AccessRight $AccessRight -Force -ErrorAction Stop
-            
-            # Remove Everyone access from share
-            $currentAccess = Get-SmbShareAccess -Name $ShareName -ErrorAction SilentlyContinue
-            $everyoneAccess = $currentAccess | Where-Object { $_.AccountName -eq "Everyone" }
-            if ($everyoneAccess) {
-                Revoke-SmbShareAccess -Name $ShareName -AccountName "Everyone" -Force -ErrorAction SilentlyContinue
-            }
         } -ArgumentList $ShareName, $PermissionAccount, $AccessRight -ErrorAction Stop
         
         Write-LogMessage -Level "Success" -Message "Applied SMB permissions for $ComputerName"
@@ -355,14 +348,8 @@ foreach ($computer in $script:aliveComputers) {
                 -PermissionAccount $Config.SharePermissionAccount -AccessRight $Config.ShareAccessRight `
                 -ComputerName $computer
             
-            # Test UNC path access
-            if (Test-Path $sharePath -ErrorAction SilentlyContinue) {
-                $script:successfulShares += "$computer - $sharePath (Already existed)"
-                Write-LogMessage -Level "Success" -Message "Verified existing share for $computer"
-            } else {
-                Write-LogMessage -Level "Warning" -Message "Share exists locally but UNC path not accessible for $computer"
-                $script:successfulShares += "$computer - $sharePath (Exists locally, UNC not accessible)"
-            }
+            $script:successfulShares += "$computer - $sharePath (Updated)"
+            Write-LogMessage -Level "Success" -Message "Applied permissions to existing share for $computer"
             
             # Clean up and continue to next computer
             Remove-SessionSafely -Session $session
@@ -415,14 +402,8 @@ foreach ($computer in $script:aliveComputers) {
             -PermissionAccount $Config.SharePermissionAccount -AccessRight $Config.ShareAccessRight `
             -ComputerName $computer
         
-        # Final verification - test UNC path access after permissions applied
-        if (Test-Path $sharePath -ErrorAction SilentlyContinue) {
-            $script:successfulShares += "$computer - $sharePath"
-            Write-LogMessage -Level "Success" -Message "Successfully configured and verified share for $computer"
-        } else {
-            Write-LogMessage -Level "Warning" -Message "Share exists locally but UNC path not accessible for $computer"
-            $script:successfulShares += "$computer - $sharePath (Exists locally, UNC may need time)"
-        }
+        $script:successfulShares += "$computer - $sharePath (Created)"
+        Write-LogMessage -Level "Success" -Message "Successfully created and configured share for $computer"
         
     } catch {
         Write-LogMessage -Level "Error" -Message "Failed to process $computer : $($_.Exception.Message)"

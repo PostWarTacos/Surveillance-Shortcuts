@@ -22,8 +22,8 @@ $Config = @{
     )
     
     # Share Configuration
-    SharePermissionAccount  = "DDS\FW-Milestone"
-    ShareAccessRight        = "Read"
+    SharePermissionAccount  = "Everyone"
+    ShareAccessRight        = "Full"
     
     # Test Server for External Validation
     TestServer              = "vcanz441"
@@ -134,15 +134,8 @@ Function Set-LocalSharePermissions {
     
     # Configure SMB share permissions
     try {
-        # Grant correct access
+        # Grant Everyone full access at share level (NTFS will restrict actual access)
         Grant-SmbShareAccess -Name $ShareName -AccountName $PermissionAccount -AccessRight $AccessRight -Force -ErrorAction Stop
-        
-        # Remove Everyone access from share
-        $currentAccess = Get-SmbShareAccess -Name $ShareName -ErrorAction SilentlyContinue
-        $everyoneAccess = $currentAccess | Where-Object { $_.AccountName -eq "Everyone" }
-        if ($everyoneAccess) {
-            Revoke-SmbShareAccess -Name $ShareName -AccountName "Everyone" -Force -ErrorAction SilentlyContinue
-        }
         
         Write-LogMessage -Level "Success" -Message "Applied SMB permissions for share $ShareName"
         
