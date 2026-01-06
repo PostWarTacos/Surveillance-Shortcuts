@@ -17,10 +17,25 @@ Main script that connects to ADSI (Active Directory Service Interfaces) to pull 
 - API integration for store information
 
 ### Build-Share-Local.ps1
-Creates local file shares for surveillance data with appropriate permissions.
+**Intended for SCCM Deployment**: This script is designed to run locally on surveillance computers via SCCM task sequences, as SCCM executes scripts directly on the target machine. It performs the following:
+- Verifies the computer is located in a SURV organizational unit
+- Creates or validates the existence of local SMB shares
+- Configures SMB share permissions (Everyone with Full access for share-level permissions)
+- Configures NTFS permissions (restricted to administrators and FW-Milestone for actual security)
+- Tests external share accessibility from a designated test server
+
+**Security Model**: Uses a two-layer permission approach where SMB shares grant broad access at the share level, while NTFS permissions provide the actual security restrictions.
 
 ### Build-Share-Remote.ps1
-Creates remote file shares on surveillance computers across the network.
+Remotely connects to surveillance computers across the network to create and configure file shares. Features include:
+- PowerShell remoting to manage shares on remote computers
+- Network connectivity testing before attempting configuration
+- SMB share creation with Everyone Full access (share level)
+- NTFS permission hardening (restricted to administrators and FW-Milestone)
+- Consolidated permission management function
+- No UNC path testing to avoid false failures from NTFS restrictions
+
+**Security Model**: Implements the same two-layer approach as the local script, ensuring consistent security across all surveillance shares.
 
 ### Create-ScheduledTask.ps1
 Sets up a scheduled task to automatically run the shortcut creation scripts at specified intervals.
