@@ -22,11 +22,13 @@ $Config = @{
     )
     
     # Share Configuration
-    SharePermissionAccount  = "Everyone"
-    ShareAccessRight        = "Full"
+    SharePermissions = @(
+        @{ Account = "DDS\FW-Milestone"; AccessRight = "Read" }
+        @{ Account = "DDS\Desktop-Admins"; AccessRight = "Full" }
+    )
     
     # Test Server for External Validation
-    TestServer              = "vcanz441"
+    TestServer = "vcanz441"
 }
 
 # --------------- Helper Functions --------------- #
@@ -126,16 +128,22 @@ Function Set-LocalSharePermissions {
         [string]$LocalPath,
         
         [Parameter(Mandatory)]
-        [string]$PermissionAccount,
-        
-        [Parameter(Mandatory)]
-        [string]$AccessRight
+        [array]$SharePermissions
     )
     
     # Configure SMB share permissions
     try {
-        # Grant Everyone full access at share level (NTFS will restrict actual access)
-        Grant-SmbShareAccess -Name $ShareName -AccountName $PermissionAccount -AccessRight $AccessRight -Force -ErrorAction Stop
+        # Remove Everyone access from share if present
+        $currentAccess = Get-SmbShareAccess -Name $ShareName -ErrorAction SilentlyContinue
+        $everyoneAccess = $currentAccess | Where-Object { $_.AccountName -eq "Everyone" }
+        if ($everyoneAccess) {
+            Revoke-SmbShareAccess -Name $ShareName -AccountName "Everyone" -Force -ErrorAction SilentlyContinue
+        }
+        
+        # Grant configured access levels
+        foreach ($permission in $SharePermissions) {
+            Grant-SmbShareAccess -Name $ShareName -AccountName $permission.Account -AccessRight $permission.AccessRight -Force -ErrorAction Stop
+        }
         
         Write-LogMessage -Level "Success" -Message "Applied SMB permissions for share $ShareName"
         
@@ -147,21 +155,23 @@ Function Set-LocalSharePermissions {
     try {
         $ACL = Get-Acl -Path $LocalPath
         
-        # Add the required permission if not present
-        $existingRule = $ACL.Access | Where-Object { 
-            $_.IdentityReference.Value -match "FW-Milestone" -and 
-            $_.FileSystemRights -eq $AccessRight 
-        }
-        
-        if (-not $existingRule) {
-            $Rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-                $PermissionAccount, 
-                $AccessRight, 
-                "ContainerInherit, ObjectInherit", 
-                "None", 
-                "Allow"
-            )
-            $ACL.AddAccessRule($Rule)
+        # Add the required permissions for each account
+        foreach ($permission in $SharePermissions) {
+            $existingRule = $ACL.Access | Where-Object { 
+                $_.IdentityReference.Value -eq $permission.Account -and 
+                $_.FileSystemRights -eq $permission.AccessRight 
+            }
+            
+            if (-not $existingRule) {
+                $Rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+                    $permission.Account, 
+                    $permission.AccessRight, 
+                    "ContainerInherit, ObjectInherit", 
+                    "None", 
+                    "Allow"
+                )
+                $ACL.AddAccessRule($Rule)
+            }
         }
         
         # Define groups to remove for security
@@ -258,7 +268,7 @@ if ($shareExists) {
 Write-LogMessage -Level "Info" -Message "Applying permissions to share $shareName"
 
 Set-LocalSharePermissions -ShareName $shareName -LocalPath $localPath `
-    -PermissionAccount $Config.SharePermissionAccount -AccessRight $Config.ShareAccessRight
+    -SharePermissions $Config.SharePermissions
 
 # --------------- Step 5: Test External Accessibility --------------- #
 

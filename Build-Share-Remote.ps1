@@ -28,8 +28,10 @@ $Config = @{
     ConnectionTestCount = 2
     
     # Share Configuration
-    SharePermissionAccount  = "Everyone"
-    ShareAccessRight        = "Full"
+    SharePermissions = @(
+        @{ Account = "DDS\FW-Milestone"; AccessRight = "Read" }
+        @{ Account = "DDS\Desktop-Admins"; AccessRight = "Full" }
+    )
 }
 
 # --------------- Script Variables --------------- #
@@ -158,10 +160,7 @@ Function Set-SharePermissions {
         [string]$LocalPath,
         
         [Parameter(Mandatory)]
-        [string]$PermissionAccount,
-        
-        [Parameter(Mandatory)]
-        [string]$AccessRight,
+        [array]$SharePermissions,
         
         [Parameter(Mandatory)]
         [string]$ComputerName
@@ -170,11 +169,20 @@ Function Set-SharePermissions {
     # Configure SMB share permissions
     try {
         Invoke-Command -Session $Session -ScriptBlock {
-            param($ShareName, $PermissionAccount, $AccessRight)
+            param($ShareName, $SharePermissions)
             
-            # Grant Everyone full access at share level (NTFS will restrict actual access)
-            Grant-SmbShareAccess -Name $ShareName -AccountName $PermissionAccount -AccessRight $AccessRight -Force -ErrorAction Stop
-        } -ArgumentList $ShareName, $PermissionAccount, $AccessRight -ErrorAction Stop
+            # Remove Everyone access from share if present
+            $currentAccess = Get-SmbShareAccess -Name $ShareName -ErrorAction SilentlyContinue
+            $everyoneAccess = $currentAccess | Where-Object { $_.AccountName -eq "Everyone" }
+            if ($everyoneAccess) {
+                Revoke-SmbShareAccess -Name $ShareName -AccountName "Everyone" -Force -ErrorAction SilentlyContinue
+            }
+            
+            # Grant configured access levels
+            foreach ($permission in $SharePermissions) {
+                Grant-SmbShareAccess -Name $ShareName -AccountName $permission.Account -AccessRight $permission.AccessRight -Force -ErrorAction Stop
+            }
+        } -ArgumentList $ShareName, $SharePermissions -ErrorAction Stop
         
         Write-LogMessage -Level "Success" -Message "Applied SMB permissions for $ComputerName"
         
@@ -185,7 +193,7 @@ Function Set-SharePermissions {
     # Configure NTFS permissions
     try {
         Invoke-Command -Session $Session -ScriptBlock {
-            param($LocalPath, $PermissionAccount, $AccessRight)
+            param($LocalPath, $SharePermissions)
             
             # Explicitly import the module to avoid module load errors
             Import-Module Microsoft.PowerShell.Management -ErrorAction SilentlyContinue
@@ -193,21 +201,23 @@ Function Set-SharePermissions {
             
             $ACL = Get-Acl -Path $LocalPath
             
-            # Add the required permission if not present
-            $existingRule = $ACL.Access | Where-Object { 
-                $_.IdentityReference.Value -match "FW-Milestone" -and 
-                $_.FileSystemRights -eq $AccessRight 
-            }
-            
-            if (-not $existingRule) {
-                $Rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-                    $PermissionAccount, 
-                    $AccessRight, 
-                    "ContainerInherit, ObjectInherit", 
-                    "None", 
-                    "Allow"
-                )
-                $ACL.AddAccessRule($Rule)
+            # Add the required permissions for each account
+            foreach ($permission in $SharePermissions) {
+                $existingRule = $ACL.Access | Where-Object { 
+                    $_.IdentityReference.Value -eq $permission.Account -and 
+                    $_.FileSystemRights -eq $permission.AccessRight 
+                }
+                
+                if (-not $existingRule) {
+                    $Rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+                        $permission.Account, 
+                        $permission.AccessRight, 
+                        "ContainerInherit, ObjectInherit", 
+                        "None", 
+                        "Allow"
+                    )
+                    $ACL.AddAccessRule($Rule)
+                }
             }
             
             # Define groups to remove for security
@@ -240,7 +250,7 @@ Function Set-SharePermissions {
             }
             
             Set-ACL -Path $LocalPath -AclObject $ACL -ErrorAction Stop
-        } -ArgumentList $LocalPath, $PermissionAccount, $AccessRight -ErrorAction Stop
+        } -ArgumentList $LocalPath, $SharePermissions -ErrorAction Stop
         
         Write-LogMessage -Level "Success" -Message "Applied NTFS permissions for $ComputerName"
         
@@ -345,8 +355,7 @@ foreach ($computer in $script:aliveComputers) {
             
             # Apply/verify permissions using consolidated function
             Set-SharePermissions -Session $session -ShareName $shareName -LocalPath $localPath `
-                -PermissionAccount $Config.SharePermissionAccount -AccessRight $Config.ShareAccessRight `
-                -ComputerName $computer
+                -SharePermissions $Config.SharePermissions -ComputerName $computer
             
             $script:successfulShares += "$computer - $sharePath (Updated)"
             Write-LogMessage -Level "Success" -Message "Applied permissions to existing share for $computer"
@@ -399,8 +408,7 @@ foreach ($computer in $script:aliveComputers) {
         
         # Configure permissions using consolidated function
         Set-SharePermissions -Session $session -ShareName $shareName -LocalPath $localPath `
-            -PermissionAccount $Config.SharePermissionAccount -AccessRight $Config.ShareAccessRight `
-            -ComputerName $computer
+            -SharePermissions $Config.SharePermissions -ComputerName $computer
         
         $script:successfulShares += "$computer - $sharePath (Created)"
         Write-LogMessage -Level "Success" -Message "Successfully created and configured share for $computer"
