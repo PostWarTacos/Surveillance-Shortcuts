@@ -123,6 +123,88 @@ Function Test-ShareExists {
     }
 }
 
+Function Get-ShareAndNTFSPermissions {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ComputerName,
+        
+        [Parameter(Mandatory)]
+        [string]$ShareName
+    )
+    
+    $permissionsInfo = @{
+        SharePermissions = @()
+        NTFSPermissions = @()
+        Errors = @()
+    }
+    
+    # Get Share Permissions
+    try {
+        Write-LogMessage "    Retrieving share permissions..." -Level Info -LogFile $Config.LogFilePath
+        $sharePermissions = Get-WmiObject -Class Win32_LogicalShareSecuritySetting -Filter "Name='$ShareName'" -ComputerName $ComputerName -ErrorAction Stop
+        
+        if ($sharePermissions) {
+            $securityDescriptor = $sharePermissions.GetSecurityDescriptor()
+            if ($securityDescriptor.ReturnValue -eq 0) {
+                foreach ($ace in $securityDescriptor.Descriptor.DACL) {
+                    $trustee = $ace.Trustee
+                    $domain = if ($trustee.Domain) { "$($trustee.Domain)\" } else { "" }
+                    $identity = "$domain$($trustee.Name)"
+                    
+                    $accessMask = $ace.AccessMask
+                    $rights = switch ($accessMask) {
+                        2032127 { "Full Control" }
+                        1245631 { "Change" }
+                        1179817 { "Read" }
+                        default { "Custom ($accessMask)" }
+                    }
+                    
+                    $permissionsInfo.SharePermissions += [PSCustomObject]@{
+                        Identity = $identity
+                        Rights = $rights
+                        Type = if ($ace.AceType -eq 0) { "Allow" } else { "Deny" }
+                    }
+                }
+                Write-LogMessage "    Found $($permissionsInfo.SharePermissions.Count) share permission entries" -Level Success -LogFile $Config.LogFilePath
+            } else {
+                $permissionsInfo.Errors += "Failed to retrieve share security descriptor (Return Code: $($securityDescriptor.ReturnValue))"
+                Write-LogMessage "    Failed to retrieve share security descriptor" -Level Warning -LogFile $Config.LogFilePath
+            }
+        } else {
+            $permissionsInfo.Errors += "Share not found via WMI"
+            Write-LogMessage "    Share not found via WMI" -Level Warning -LogFile $Config.LogFilePath
+        }
+    }
+    catch {
+        $permissionsInfo.Errors += "Share permissions error: $($_.Exception.Message)"
+        Write-LogMessage "    Error getting share permissions: $($_.Exception.Message)" -Level Warning -LogFile $Config.LogFilePath
+    }
+    
+    # Get NTFS Permissions
+    try {
+        Write-LogMessage "    Retrieving NTFS permissions..." -Level Info -LogFile $Config.LogFilePath
+        $sharePath = "\\$ComputerName\$ShareName"
+        $acl = Get-Acl -Path $sharePath -ErrorAction Stop
+        
+        foreach ($access in $acl.Access) {
+            $permissionsInfo.NTFSPermissions += [PSCustomObject]@{
+                Identity = $access.IdentityReference
+                Rights = $access.FileSystemRights
+                Type = $access.AccessControlType
+                Inherited = $access.IsInherited
+            }
+        }
+        Write-LogMessage "    Found $($permissionsInfo.NTFSPermissions.Count) NTFS permission entries" -Level Success -LogFile $Config.LogFilePath
+    }
+    catch {
+        $permissionsInfo.Errors += "NTFS permissions error: $($_.Exception.Message)"
+        Write-LogMessage "    Error getting NTFS permissions: $($_.Exception.Message)" -Level Warning -LogFile $Config.LogFilePath
+    }
+    
+    return $permissionsInfo
+}
+
 Function Test-AllComputers {
     [CmdletBinding()]
     param(
@@ -153,6 +235,34 @@ Function Test-AllComputers {
             if ($shareTest.Exists) {
                 Write-LogMessage "  [SHARE EXISTS] $($shareTest.SharePath) is accessible" -Level Success -LogFile $Config.LogFilePath
                 $script:results.ShareExists += $computer
+                
+                # Get permissions for this share
+                $permissions = Get-ShareAndNTFSPermissions -ComputerName $computer -ShareName $shareTest.ShareName
+                
+                # Log share permissions
+                if ($permissions.SharePermissions.Count -gt 0) {
+                    Write-LogMessage "    --- Share Permissions ---" -Level Info -LogFile $Config.LogFilePath
+                    foreach ($perm in $permissions.SharePermissions) {
+                        Write-LogMessage "      $($perm.Identity): $($perm.Rights) ($($perm.Type))" -Level Info -LogFile $Config.LogFilePath
+                    }
+                }
+                
+                # Log NTFS permissions
+                if ($permissions.NTFSPermissions.Count -gt 0) {
+                    Write-LogMessage "    --- NTFS Permissions ---" -Level Info -LogFile $Config.LogFilePath
+                    foreach ($perm in $permissions.NTFSPermissions) {
+                        $inheritedText = if ($perm.Inherited) { "Inherited" } else { "Explicit" }
+                        Write-LogMessage "      $($perm.Identity): $($perm.Rights) ($($perm.Type), $inheritedText)" -Level Info -LogFile $Config.LogFilePath
+                    }
+                }
+                
+                # Log any errors
+                if ($permissions.Errors.Count -gt 0) {
+                    Write-LogMessage "    --- Permission Retrieval Errors ---" -Level Warning -LogFile $Config.LogFilePath
+                    foreach ($error in $permissions.Errors) {
+                        Write-LogMessage "      $error" -Level Warning -LogFile $Config.LogFilePath
+                    }
+                }
             }
             else {
                 Write-LogMessage "  [SHARE MISSING] $($shareTest.SharePath) is NOT accessible" -Level Error -LogFile $Config.LogFilePath
