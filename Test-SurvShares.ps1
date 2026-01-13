@@ -32,6 +32,8 @@ $script:results = @{
     Offline = @()
     ShareExists = @()
     ShareMissing = @()
+    ShareConfiguredCorrectly = @()
+    ShareMisconfigured = @()
     TotalComputers = 0
 }
 
@@ -205,6 +207,78 @@ Function Get-ShareAndNTFSPermissions {
     return $permissionsInfo
 }
 
+Function Test-SharePermissionsConfigured {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [object]$Permissions
+    )
+    
+    $isConfiguredCorrectly = $true
+    $issues = @()
+    
+    # Required permissions criteria
+    $requiredSharePerms = @{
+        "*admin*" = "Full Control"
+        "*milestone*" = "Read"
+    }
+    
+    $requiredNTFSPerms = @{
+        "*admin*" = @("FullControl")
+        "*milestone*" = @("Read", "ReadAndExecute")
+    }
+    
+    # Check Share Permissions
+    foreach ($required in $requiredSharePerms.GetEnumerator()) {
+        $accountPattern = $required.Key
+        $requiredRights = $required.Value
+        
+        $found = $Permissions.SharePermissions | Where-Object { 
+            $_.Identity -like $accountPattern -and 
+            $_.Rights -eq $requiredRights -and 
+            $_.Type -eq "Allow"
+        }
+        
+        if (-not $found) {
+            # Check if pattern matches but rights are wrong
+            $partialMatch = $Permissions.SharePermissions | Where-Object { $_.Identity -like $accountPattern }
+            if ($partialMatch) {
+                Write-LogMessage "      DEBUG: Found matching identity '$($partialMatch.Identity)' with rights '$($partialMatch.Rights)' (need '$requiredRights')" -Level Info -LogFile $Config.LogFilePath
+            }
+            $isConfiguredCorrectly = $false
+            $issues += "Share: Missing or incorrect permissions for '$accountPattern' (Expected: $requiredRights)"
+        }
+    }
+    
+    # Check NTFS Permissions
+    foreach ($required in $requiredNTFSPerms.GetEnumerator()) {
+        $accountPattern = $required.Key
+        $acceptableRights = $required.Value
+        
+        $found = $Permissions.NTFSPermissions | Where-Object { 
+            $rights = $_.Rights.ToString()
+            $_.Identity.ToString() -like $accountPattern -and 
+            $_.Type -eq "Allow" -and
+            ($acceptableRights | Where-Object { $rights -like "*$_*" }).Count -gt 0
+        }
+        
+        if (-not $found) {
+            # Check if pattern matches but rights are wrong
+            $partialMatch = $Permissions.NTFSPermissions | Where-Object { $_.Identity.ToString() -like $accountPattern }
+            if ($partialMatch) {
+                Write-LogMessage "      DEBUG: Found matching identity '$($partialMatch.Identity)' with rights '$($partialMatch.Rights)' (need '$($acceptableRights -join ' or ')')" -Level Info -LogFile $Config.LogFilePath
+            }
+            $isConfiguredCorrectly = $false
+            $issues += "NTFS: Missing or incorrect permissions for '$accountPattern' (Expected: $($acceptableRights -join ' or '))"
+        }
+    }
+    
+    return @{
+        IsConfigured = $isConfiguredCorrectly
+        Issues = $issues
+    }
+}
+
 Function Test-AllComputers {
     [CmdletBinding()]
     param(
@@ -259,9 +333,23 @@ Function Test-AllComputers {
                 # Log any errors
                 if ($permissions.Errors.Count -gt 0) {
                     Write-LogMessage "    --- Permission Retrieval Errors ---" -Level Warning -LogFile $Config.LogFilePath
-                    foreach ($error in $permissions.Errors) {
-                        Write-LogMessage "      $error" -Level Warning -LogFile $Config.LogFilePath
+                    foreach ($err in $permissions.Errors) {
+                        Write-LogMessage "      $err" -Level Warning -LogFile $Config.LogFilePath
                     }
+                }
+                
+                # Validate permissions configuration
+                $validation = Test-SharePermissionsConfigured -Permissions $permissions
+                
+                if ($validation.IsConfigured) {
+                    Write-LogMessage "    [CONFIGURED CORRECTLY] Share permissions match required criteria" -Level Success -LogFile $Config.LogFilePath
+                    $script:results.ShareConfiguredCorrectly += $computer
+                } else {
+                    Write-LogMessage "    [MISCONFIGURED] Share permissions do not match required criteria" -Level Warning -LogFile $Config.LogFilePath
+                    foreach ($issue in $validation.Issues) {
+                        Write-LogMessage "      - $issue" -Level Warning -LogFile $Config.LogFilePath
+                    }
+                    $script:results.ShareMisconfigured += $computer
                 }
             }
             else {
@@ -299,6 +387,10 @@ Function Write-SummaryReport {
     Write-LogMessage "Share Exists:  $($script:results.ShareExists.Count)" -Level Info -LogFile $Config.LogFilePath
     Write-LogMessage "Share Missing: $($script:results.ShareMissing.Count)" -Level Info -LogFile $Config.LogFilePath
     write-host
+    Write-LogMessage "--- Share Configuration Results (Shares That Exist) ---" -Level Success -LogFile $Config.LogFilePath
+    Write-LogMessage "Configured Correctly: $($script:results.ShareConfiguredCorrectly.Count)" -Level Info -LogFile $Config.LogFilePath
+    Write-LogMessage "Misconfigured:        $($script:results.ShareMisconfigured.Count)" -Level Info -LogFile $Config.LogFilePath
+    write-host
     
     if ($script:results.Offline.Count -gt 0) {
         Write-LogMessage "=========================================" -Level Error -LogFile $Config.LogFilePath
@@ -321,11 +413,22 @@ Function Write-SummaryReport {
         write-host
     }
     
-    if ($script:results.ShareExists.Count -gt 0) {
+    if ($script:results.ShareConfiguredCorrectly.Count -gt 0) {
         Write-LogMessage "=========================================" -Level Success -LogFile $Config.LogFilePath
-        Write-LogMessage "=== COMPUTERS WITH VALID SHARES ===" -Level Success -LogFile $Config.LogFilePath
+        Write-LogMessage "=== COMPUTERS WITH CORRECTLY CONFIGURED SHARES ===" -Level Success -LogFile $Config.LogFilePath
         Write-LogMessage "=========================================" -Level Success -LogFile $Config.LogFilePath
-        foreach ($computer in $script:results.ShareExists) {
+        foreach ($computer in $script:results.ShareConfiguredCorrectly) {
+            $shareName = $computer.Substring(1,4) + "_corp"
+            Write-LogMessage "  - $computer (\\$computer\$shareName)" -Level Info -LogFile $Config.LogFilePath
+        }
+        write-host
+    }
+    
+    if ($script:results.ShareMisconfigured.Count -gt 0) {
+        Write-LogMessage "=========================================" -Level Warning -LogFile $Config.LogFilePath
+        Write-LogMessage "=== COMPUTERS WITH MISCONFIGURED SHARES ===" -Level Warning -LogFile $Config.LogFilePath
+        Write-LogMessage "=========================================" -Level Warning -LogFile $Config.LogFilePath
+        foreach ($computer in $script:results.ShareMisconfigured) {
             $shareName = $computer.Substring(1,4) + "_corp"
             Write-LogMessage "  - $computer (\\$computer\$shareName)" -Level Info -LogFile $Config.LogFilePath
         }
