@@ -219,12 +219,12 @@ Function Test-SharePermissionsConfigured {
     
     # Required permissions criteria
     $requiredSharePerms = @{
-        "*admin*" = "Full Control"
+        "*desktop-admin*" = "Full Control"
         "*milestone*" = "Read"
     }
     
     $requiredNTFSPerms = @{
-        "*admin*" = @("FullControl")
+        "*administrators*" = @("FullControl")
         "*milestone*" = @("Read", "ReadAndExecute")
     }
     
@@ -246,7 +246,8 @@ Function Test-SharePermissionsConfigured {
                 Write-LogMessage "      DEBUG: Found matching identity '$($partialMatch.Identity)' with rights '$($partialMatch.Rights)' (need '$requiredRights')" -Level Info -LogFile $Config.LogFilePath
             }
             $isConfiguredCorrectly = $false
-            $issues += "Share: Missing or incorrect permissions for '$accountPattern' (Expected: $requiredRights)"
+            $displayPattern = $accountPattern -replace '\*', ''
+            $issues += "Share: Missing or incorrect permissions for account matching '$displayPattern' (Expected: $requiredRights)"
         }
     }
     
@@ -269,7 +270,8 @@ Function Test-SharePermissionsConfigured {
                 Write-LogMessage "      DEBUG: Found matching identity '$($partialMatch.Identity)' with rights '$($partialMatch.Rights)' (need '$($acceptableRights -join ' or ')')" -Level Info -LogFile $Config.LogFilePath
             }
             $isConfiguredCorrectly = $false
-            $issues += "NTFS: Missing or incorrect permissions for '$accountPattern' (Expected: $($acceptableRights -join ' or '))"
+            $displayPattern = $accountPattern -replace '\*', ''
+            $issues += "NTFS: Missing or incorrect permissions for account matching '$displayPattern' (Expected: $($acceptableRights -join ' or '))"
         }
     }
     
