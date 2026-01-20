@@ -130,6 +130,10 @@ Function Set-SharePermissions {
     
     # Configure SMB share permissions
     try {
+        # Remove any existing permissions for these accounts first to ensure clean state
+        Revoke-SmbShareAccess -Name $ShareName -AccountName "dds\desktop-admin" -Force -ErrorAction SilentlyContinue | Out-Null
+        Revoke-SmbShareAccess -Name $ShareName -AccountName "dds\fw-milestone" -Force -ErrorAction SilentlyContinue | Out-Null
+        
         # Grant configured access levels
         Grant-SmbShareAccess -Name $ShareName -AccountName "dds\desktop-admin" -AccessRight Full -Force -ErrorAction Stop | Out-Null
         Grant-SmbShareAccess -Name $ShareName -AccountName "dds\fw-milestone" -AccessRight Read -Force -ErrorAction Stop | Out-Null
