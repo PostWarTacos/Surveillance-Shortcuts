@@ -406,7 +406,7 @@ Function Write-SummaryReport {
     
     if ($script:results.ShareMissing.Count -gt 0) {
         Write-LogMessage "=========================================" -Level Error -LogFile $Config.LogFilePath
-        Write-LogMessage "=== COMPUTERS MISSING/MISCONFIGURED SHARES ===" -Level Error -LogFile $Config.LogFilePath
+        Write-LogMessage "=== COMPUTERS MISSING SHARES ===" -Level Error -LogFile $Config.LogFilePath
         Write-LogMessage "=========================================" -Level Error -LogFile $Config.LogFilePath
         foreach ($computer in $script:results.ShareMissing) {
             $shareName = $computer.Substring(1,4) + "_corp"
