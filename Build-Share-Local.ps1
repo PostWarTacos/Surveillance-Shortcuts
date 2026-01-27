@@ -130,15 +130,24 @@ Function Set-SharePermissions {
     
     # Configure SMB share permissions
     try {
-        # Remove any existing permissions for these accounts first to ensure clean state
-        Revoke-SmbShareAccess -Name $ShareName -AccountName "dds\desktop-admin" -Force -ErrorAction SilentlyContinue | Out-Null
-        Revoke-SmbShareAccess -Name $ShareName -AccountName "dds\fw-milestone" -Force -ErrorAction SilentlyContinue | Out-Null
+        # Get all current share access entries and remove them to ensure clean state
+        $currentAccess = Get-SmbShareAccess -Name $ShareName -ErrorAction Stop
+        foreach ($access in $currentAccess) {
+            $accountName = $access.AccountName
+            # Skip removal of Everyone with Read (default), we'll handle it after
+            if ($accountName -ne "Everyone") {
+                Revoke-SmbShareAccess -Name $ShareName -AccountName $accountName -Force -ErrorAction SilentlyContinue | Out-Null
+            }
+        }
         
-        # Grant configured access levels
+        # Remove Everyone if it exists
+        Revoke-SmbShareAccess -Name $ShareName -AccountName "Everyone" -Force -ErrorAction SilentlyContinue | Out-Null
+        
+        # Grant configured access levels with clean slate
         Grant-SmbShareAccess -Name $ShareName -AccountName "dds\desktop-admin" -AccessRight Full -Force -ErrorAction Stop | Out-Null
         Grant-SmbShareAccess -Name $ShareName -AccountName "dds\fw-milestone" -AccessRight Read -Force -ErrorAction Stop | Out-Null
         
-        Write-LogMessage -Level "Success" -Message "Applied SMB permissions for share $ShareName"
+        Write-LogMessage -Level "Success" -Message "Applied SMB permissions for share $ShareName (cleaned and reapplied)"
         
     } catch {
         Write-LogMessage -Level "Warning" -Message "Failed to update SMB share permissions: $($_.Exception.Message)"
