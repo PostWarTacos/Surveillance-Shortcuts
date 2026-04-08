@@ -15,11 +15,11 @@ $Config = @{
     LogFilePath         = "C:\Drivers\SURV\BuildShare_Local.log"
     
     # ADSI Configuration
-    OrganizationalUnits = @(
-        "OU=SURV,OU=Shared_Use,OU=Endpoints,DC=dds,DC=dillards,DC=net",
-        "OU=SURV,OU=Shared_Use,OU=Win11,OU=Endpoints,DC=dds,DC=dillards,DC=net",
-        "OU=SURV,OU=Shared_Use,OU=WildWest,OU=Endpoints,DC=dds,DC=dillards,DC=net"
-    )
+    ADSIFilter      = "(&(objectClass=computer)(sAMAccountName=*))"
+    ADSIPageSize    = 1000
+    $ROLE           = 'SURV'
+    $OUs = ([System.DirectoryServices.DirectorySearcher]"(&(objectClass=organizationalUnit)(OU=$ROLE))").FindAll().path |
+        Where-Object {(($_ -match "EndPoints") -and ($_ -match "$ROLE"))}
     
     # Share Configuration
     SharePermissions = @(

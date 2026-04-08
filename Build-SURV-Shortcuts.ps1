@@ -22,12 +22,11 @@ $Config = @{
     ApiHeaders  = @{"accept" = "text/plain"}
     
     # ADSI Configuration
-    ADSIFilter          = "(&(objectClass=computer)(sAMAccountName=*))"
-    ADSIPageSize        = 1000
-    OrganizationalUnits = @(
-        "LDAP://OU=SURV,OU=Shared_Use,OU=Win11,OU=Endpoints,DC=dds,DC=dillards,DC=net",
-        "LDAP://OU=SURV,OU=Shared_Use,OU=WildWest,OU=Endpoints,DC=dds,DC=dillards,DC=net"
-    )
+    ADSIFilter      = "(&(objectClass=computer)(sAMAccountName=*))"
+    ADSIPageSize    = 1000
+    $ROLE           = 'SURV'
+    $OUs = ([System.DirectoryServices.DirectorySearcher]"(&(objectClass=organizationalUnit)(OU=$ROLE))").FindAll().path |
+        Where-Object {(($_ -match "EndPoints") -and ($_ -match "$ROLE"))}
     
     # Network Configuration
     ConnectionTestCount = 2
