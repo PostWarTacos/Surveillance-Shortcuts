@@ -25,7 +25,6 @@ $Config = @{
     ADSIFilter          = "(&(objectClass=computer)(sAMAccountName=*))"
     ADSIPageSize        = 1000
     OrganizationalUnits = @(
-        "LDAP://OU=SURV,OU=Shared_Use,OU=Endpoints,DC=dds,DC=dillards,DC=net",
         "LDAP://OU=SURV,OU=Shared_Use,OU=Win11,OU=Endpoints,DC=dds,DC=dillards,DC=net",
         "LDAP://OU=SURV,OU=Shared_Use,OU=WildWest,OU=Endpoints,DC=dds,DC=dillards,DC=net"
     )
@@ -173,7 +172,7 @@ Function Get-SiteInfoFromDDSAPI() {
     )
 
     try {
-        $web = Invoke-WebRequest -Uri $Config.ApiUri -Headers $Config.ApiHeaders -ErrorAction Stop
+        $web = Invoke-WebRequest -Uri $Config.ApiUri -Headers $Config.ApiHeaders -UseBasicParsing -ErrorAction Stop
         $db = $web.content | ConvertFrom-Json -ErrorAction Stop
 
         $localCode = $($Hostname).substring(1,4)
@@ -441,5 +440,5 @@ $script:pathFailed | Out-File "$($Config.ScriptLocation)\PathFailed.txt"
 $script:NoADSIData | Out-File "$($Config.ScriptLocation)\NoADSIData.txt"
 $script:shortcutsFailed | Out-File "$($Config.ScriptLocation)\ShortcutsFailed.txt"
 
-Write-LogMessage -Level "Success" -Message "Completed creating $script:shortcutsCreated.count shortcuts. $script:shortcutsFailed.count failed"
+Write-LogMessage -Level "Success" -Message "Completed creating $($script:shortcutsCreated).count shortcuts. $($script:shortcutsFailed).count failed"
 Write-LogMessage -Level "Info" -Message "Surveillance Shortcuts creation process completed. Check log file: $($config.LogFilePath)"
